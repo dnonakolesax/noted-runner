@@ -3,6 +3,7 @@ package http
 import (
 	"log/slog"
 
+	"github.com/dnonakolesax/noted-runner/internal/model"
 	"github.com/fasthttp/router"
 	"github.com/fasthttp/websocket"
 	"github.com/valyala/fasthttp"
@@ -15,13 +16,15 @@ type CompilerUsecase interface {
 }
 
 type ComilerDelivery struct {
-	activeConns map[string]*websocket.Conn
-	usecase     CompilerUsecase
+	activeConns     map[string]*websocket.Conn
+	kernelListeners map[string]string
+	usecase         CompilerUsecase
 }
 
 func NewComilerDelivery(usecase CompilerUsecase) *ComilerDelivery {
 	activeConns := make(map[string]*websocket.Conn)
-	return &ComilerDelivery{activeConns: activeConns, usecase: usecase}
+	kernelListeners := make(map[string]string)
+	return &ComilerDelivery{activeConns: activeConns, kernelListeners: kernelListeners, usecase: usecase}
 }
 
 var upgrader = websocket.FastHTTPUpgrader{
@@ -61,6 +64,7 @@ func (cd *ComilerDelivery) Compile(ctx *fasthttp.RequestCtx) {
 
 	err = upgrader.Upgrade(ctx, func(conn *websocket.Conn) {
 		cd.activeConns[userId] = conn
+		cd.kernelListeners[string(kernelID)] = userId
 		for {
 			messageType, message, err := conn.ReadMessage()
 
@@ -78,8 +82,8 @@ func (cd *ComilerDelivery) Compile(ctx *fasthttp.RequestCtx) {
 					err := conn.Close()
 					if err != nil {
 						slog.Error("error closing conn", slog.String("error", err.Error()))
-						break
 					}
+					break
 				}
 				continue
 			}
@@ -89,7 +93,23 @@ func (cd *ComilerDelivery) Compile(ctx *fasthttp.RequestCtx) {
 
 			if err != nil {
 				slog.Error("error compiling", slog.String("error", err.Error()))
-				_ = conn.WriteMessage(websocket.TextMessage, []byte("error compiling:" + err.Error()))
+
+				resp := model.KernelMessage{}
+				resp.KernelID = string(kernelID)
+				resp.BlockID = string(message)
+				resp.Result = "error compiling:" + err.Error()
+				resp.Fail = true
+
+				err := conn.WriteJSON(resp)
+
+				if err != nil {
+					slog.Error("error sending message", slog.String("error", err.Error()))
+					err := conn.Close()
+					if err != nil {
+						slog.Error("error closing conn", slog.String("error", err.Error()))
+					}
+					break
+				}
 			}
 		}
 	})
@@ -100,7 +120,8 @@ func (cd *ComilerDelivery) Compile(ctx *fasthttp.RequestCtx) {
 	}
 }
 
-func (cd *ComilerDelivery) SendMemes(userId string, memes string) {
+func (cd *ComilerDelivery) SendMemes(kernelId string, memes string) {
+	userId := cd.kernelListeners[kernelId]
 	if conn, ok := cd.activeConns[userId]; ok {
 		err := conn.WriteMessage(websocket.TextMessage, []byte(memes))
 		if err != nil {
