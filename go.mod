@@ -37,6 +37,7 @@ require (
 	github.com/andybalholm/brotli v1.2.0 // indirect
 	github.com/fasthttp/websocket v1.5.12
 	github.com/klauspost/compress v1.18.1 // indirect
+	github.com/rabbitmq/amqp091-go v1.10.0
 	github.com/savsgio/gotils v0.0.0-20240704082632-aef3928b8a38 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 )

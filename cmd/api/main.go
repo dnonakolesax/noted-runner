@@ -9,12 +9,13 @@ import (
 	"strconv"
 	"sync"
 	"syscall"
-	"time"
 
 	"github.com/dnonakolesax/noted-runner/internal/configs"
-	"github.com/dnonakolesax/noted-runner/internal/docker"
+	"github.com/dnonakolesax/noted-runner/internal/consumers"
 	compilerDelivery "github.com/dnonakolesax/noted-runner/internal/delivery/compiler/v1/http"
+	"github.com/dnonakolesax/noted-runner/internal/docker"
 	"github.com/dnonakolesax/noted-runner/internal/logger"
+	"github.com/dnonakolesax/noted-runner/internal/rabbit"
 	"github.com/dnonakolesax/noted-runner/internal/routing"
 	"github.com/dnonakolesax/noted-runner/internal/usecase"
 
@@ -26,16 +27,27 @@ func main() {
 	initLogger := logger.NewLogger(lcfg, "init")
 	router := routing.NewRouter()
 
-	docker, err := docker.NewDockerClient()
+	dock, err := docker.NewDockerClient()
 
 	if err != nil {
 		initLogger.Error("error creating docker", slog.String("error", err.Error()))
+		return
 	}
 
-	uc := usecase.NewCompilerUsecase(docker, "/noted/codes/kernels", "noted-kernel_")
+	uc := usecase.NewCompilerUsecase(dock, "/noted/codes/kernels", "noted-kernel_")
 
 	cd := compilerDelivery.NewComilerDelivery(uc)
 	router.NewAPIGroup("/compiler", "1", cd)
+
+	
+	rmq, err := rabbit.NewRabbit("amqp://guest:guest@172.26.0.2:5672/")
+
+	if err != nil {
+		initLogger.Error("error creating rabbit", slog.String("error", err.Error()))
+		return
+	}
+
+	consumer := consumers.NewRunnerConsumer(rmq.Queue, cd)
 
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
@@ -70,10 +82,10 @@ func main() {
 		}
 	},
 	)
-	wg.Go(func(){
-		time.Sleep(time.Second*10)
-		cd.SendMemes("1", "imnotdumbnigga")
-	},)
+
+	wg.Go(func() {
+		consumer.Consume()
+	})
 
 	sig := <-quit
 	initLogger.Info("Received signal", slog.String("signal", sig.String()))

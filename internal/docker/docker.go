@@ -14,15 +14,20 @@ import (
 
 type DockerClient struct {
 	client       *client.Client
-	logger *slog.Logger
+	//logger *slog.Logger
 }
 
 func NewDockerClient() (*DockerClient, error) {
-	os.Setenv("DOCKER_HOST", "unix:///var/run/docker.sock")
+	err := os.Setenv("DOCKER_HOST", "unix:///var/run/docker.sock")
+
+	if err != nil {
+		slog.Error("error setting dockerhost", slog.String("error", err.Error()))
+		return nil, err
+	}
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		log.Fatalf("Ошибка создания клиента: %v", err)
+		slog.Error("error creating client", slog.String("error", err.Error()))
 		return nil, err
 	}
 
