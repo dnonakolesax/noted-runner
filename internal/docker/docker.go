@@ -7,13 +7,14 @@ import (
 	"os"
 
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/docker/go-connections/nat"
 )
 
 type DockerClient struct {
-	client       *client.Client
+	client *client.Client
 	//logger *slog.Logger
 }
 
@@ -31,7 +32,7 @@ func NewDockerClient() (*DockerClient, error) {
 		return nil, err
 	}
 
-	_ , err = cli.Ping(context.Background())
+	_, err = cli.Ping(context.Background())
 
 	if err != nil {
 		slog.Error("error pinging client", slog.String("error", err.Error()))
@@ -57,6 +58,11 @@ func (dc *DockerClient) Create(name string) (string, error) {
 
 	hostConfig := &container.HostConfig{
 		//Runtime: "runsc", // Пытаемся использовать gVisor
+		Mounts: []mount.Mount{{
+			Type: mount.TypeVolume,
+			Source: "notedcode",
+			Target: "/noted/codes",
+		}},
 	}
 
 	networkName := "noted-rmq-runners"
@@ -73,7 +79,7 @@ func (dc *DockerClient) Create(name string) (string, error) {
 		hostConfig,
 		networkConfig,
 		nil,
-		"",
+		name,
 	)
 	if err != nil {
 		log.Printf("Ошибка создания контейнера (возможно gVisor недоступен): %v", err)
@@ -82,7 +88,7 @@ func (dc *DockerClient) Create(name string) (string, error) {
 	return resp.ID, nil
 }
 
-func (dc *DockerClient) Run (id string) error {
+func (dc *DockerClient) Run(id string) error {
 	err := dc.client.ContainerStart(context.Background(), id, container.StartOptions{})
 	if err != nil {
 		log.Fatalf("Ошибка запуска: %v", err)
@@ -90,7 +96,7 @@ func (dc *DockerClient) Run (id string) error {
 	return err
 }
 
-func (dc *DockerClient) Remove (id string) error {
+func (dc *DockerClient) Remove(id string) error {
 	err := dc.client.ContainerRemove(context.Background(), id, container.RemoveOptions{})
 	if err != nil {
 		log.Fatalf("Ошибка удаления: %v", err)
