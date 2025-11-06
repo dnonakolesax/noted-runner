@@ -11,7 +11,7 @@ import (
 
 type CompilerUsecase interface {
 	StartKernel(string) (string, error)
-	RunBlock(kernelID string, blockID string) error
+	RunBlock(kernelID string, blockID string, userID string) error
 	StopKernel(string) error
 }
 
@@ -89,7 +89,7 @@ func (cd *ComilerDelivery) Compile(ctx *fasthttp.RequestCtx) {
 			}
 
 			slog.Info("received message", slog.String("text", string(message)))
-			err = cd.usecase.RunBlock(string(kernelID), string(message))
+			err = cd.usecase.RunBlock(string(kernelID), string(message), userId)
 
 			if err != nil {
 				slog.Error("error compiling", slog.String("error", err.Error()))

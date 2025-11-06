@@ -3,6 +3,8 @@ import subprocess
 import os
 import json
 
+# do not forget to install goimports!
+
 filename = sys.argv[1]
 basepath = sys.argv[2]
 
@@ -45,9 +47,11 @@ def parse(filename, basepath):
                         needFunc = True
                         export.append(funName + ' := funcsMap["' + funName + '"].(' + signatures_old[funName] + ')\n')
                         export.append(line)                
-                    if funName in signatures:
+                    elif funName in signatures:
                         needFunc = True
                         export.append(line)     
+                    else:
+                        export.append(line)
                 elif len(isFunc) > 0 and isFunc[0] == "func":    
                     writeFile.write(line)
                     funcName = isFunc[1].split('(')[0]
@@ -68,9 +72,9 @@ def parse(filename, basepath):
                         elif line[i] == '}':
                             figureStack.pop()           
                         i += 1    
-
                 else:
                     if line != '\n':
+                        print("export append")
                         export.append(line)    
 
             else:
@@ -90,6 +94,7 @@ def parse(filename, basepath):
 
 
     for exportStr in export:
+        print("write")
         writeFile.write(exportStr)
 
     for func in funcs:

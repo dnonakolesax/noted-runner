@@ -28,8 +28,8 @@ func (uc *Compile) StartKernel(id string) (string, error) {
 	return id, nil
 }
 
-func (uc *Compile) RunBlock(kernelID string, blockID string) error {
-	dir := fmt.Sprintf("%s/%s", uc.mountPath, kernelID)
+func (uc *Compile) RunBlock(kernelID string, blockID string, userID string) error {
+	dir := fmt.Sprintf("%s/%s/%s", uc.mountPath, kernelID, userID)
 	cmd := exec.Command("mkdir", "-p", dir)
 	
 	err := cmd.Run()
@@ -55,7 +55,7 @@ func (uc *Compile) RunBlock(kernelID string, blockID string) error {
 		return err
 	}
 
-	resp, err := http.Get("http://" + uc.kernelPrefix + kernelID + ":8089/compile")  
+	resp, err := http.Get("http://" + uc.kernelPrefix + kernelID + ":8089/compile?block_id=" + blockID)  
     if err != nil {  
         fmt.Println("Ошибка запроса:", err)  
         return err
