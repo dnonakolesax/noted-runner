@@ -94,7 +94,7 @@ func main() {
 		initLogger.ErrorContext(context.Background(), "Main HTTP server shutdown error",
 			slog.String("error", err.Error()))
 	}
-
+	rmq.Close()
 
 	wg.Wait()
 }

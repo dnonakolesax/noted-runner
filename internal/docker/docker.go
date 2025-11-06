@@ -31,6 +31,13 @@ func NewDockerClient() (*DockerClient, error) {
 		return nil, err
 	}
 
+	_ , err = cli.Ping(context.Background())
+
+	if err != nil {
+		slog.Error("error pinging client", slog.String("error", err.Error()))
+		return nil, err
+	}
+
 	return &DockerClient{client: cli}, err
 }
 
