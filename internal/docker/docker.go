@@ -51,9 +51,15 @@ func (dc *DockerClient) Create(name string) (string, error) {
 	ports["8080"] = struct{}{}
 	// Запускаем Go контейнер
 	config := &container.Config{
-		Image:        "golang:alpine",
-		Cmd:          []string{"sh", "-c", "echo 'Hello from nested container!' && go version"},
+		Image:        "dnonakolesax/noted-kernel:0.0.2",
 		ExposedPorts: ports,
+		Env: []string{"RMQ_ADDR=amqp://guest:guest@rabbit:5672/", 
+					  "KERNEL_ID=1", 
+					  "MOUNT_PATH=/noted/codes/kernels", 
+					  "EXPORT_PREFIX=Export_block_", 
+					  "BLOCK_PREFIX=block_", 
+					  "CHAN_NAME=noted-kernels", 
+					  "BLOCK_TIMEOUT=30"},
 	}
 
 	hostConfig := &container.HostConfig{
@@ -63,6 +69,7 @@ func (dc *DockerClient) Create(name string) (string, error) {
 			Source: "notedcode",
 			Target: "/noted/codes",
 		}},
+		//AutoRemove: true,
 	}
 
 	networkName := "noted-rmq-runners"
@@ -97,7 +104,16 @@ func (dc *DockerClient) Run(id string) error {
 }
 
 func (dc *DockerClient) Remove(id string) error {
-	err := dc.client.ContainerRemove(context.Background(), id, container.RemoveOptions{})
+	err := dc.client.ContainerStop(context.Background(), id, container.StopOptions{})
+	if err != nil {
+		log.Fatalf("Ошибка остановки: %v", err)
+		if client.IsErrConnectionFailed(err) {
+			return nil
+		}
+		return err
+	}
+
+	err = dc.client.ContainerRemove(context.Background(), id, container.RemoveOptions{})
 	if err != nil {
 		log.Fatalf("Ошибка удаления: %v", err)
 		if client.IsErrConnectionFailed(err) {

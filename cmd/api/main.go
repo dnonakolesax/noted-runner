@@ -23,7 +23,7 @@ import (
 )
 
 func main() {
-	lcfg := configs.LoggerConfig{LogLevel: "info", LogAddSource: true}
+	lcfg := configs.LoggerConfig{LogLevel: "debug", LogAddSource: true}
 	initLogger := logger.NewLogger(lcfg, "init")
 	router := routing.NewRouter()
 
@@ -40,7 +40,7 @@ func main() {
 	router.NewAPIGroup("/compiler", "1", cd)
 
 	
-	rmq, err := rabbit.NewRabbit("amqp://guest:guest@172.26.0.2:5672/")
+	rmq, err := rabbit.NewRabbit("amqp://guest:guest@rabbit:5672/")
 
 	if err != nil {
 		initLogger.Error("error creating rabbit", slog.String("error", err.Error()))

@@ -70,7 +70,8 @@ func (cd *ComilerDelivery) Compile(ctx *fasthttp.RequestCtx) {
 
 			if messageType == websocket.CloseMessage || messageType == -1 {
 				delete(cd.activeConns, userId)
-				_ = cd.usecase.StopKernel(string(kernelID))
+				slog.Info("kernelid", slog.String("container id", id))
+				_ = cd.usecase.StopKernel(id)
 				break
 			}
 
