@@ -5,7 +5,9 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"strconv"
 
+	"github.com/dnonakolesax/noted-runner/internal/configs"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
@@ -15,11 +17,12 @@ import (
 
 type DockerClient struct {
 	client *client.Client
-	//logger *slog.Logger
+	config *configs.DockerConfig
+	logger *slog.Logger
 }
 
-func NewDockerClient() (*DockerClient, error) {
-	err := os.Setenv("DOCKER_HOST", "unix:///var/run/docker.sock")
+func NewDockerClient(config *configs.DockerConfig, logger *slog.Logger) (*DockerClient, error) {
+	err := os.Setenv("DOCKER_HOST", config.Host)
 
 	if err != nil {
 		slog.Error("error setting dockerhost", slog.String("error", err.Error()))
@@ -39,40 +42,40 @@ func NewDockerClient() (*DockerClient, error) {
 		return nil, err
 	}
 
-	return &DockerClient{client: cli}, err
+	return &DockerClient{client: cli, config: config, logger: logger}, err
 }
 
 func (dc *DockerClient) Close() {
 	_ = dc.client.Close()
 }
 
-func (dc *DockerClient) Create(name string) (string, error) {
+func (dc *DockerClient) Create(name string, kernelID string) (string, error) {
 	ports := make(nat.PortSet)
-	ports["8080"] = struct{}{}
+	ports[nat.Port(dc.config.AppPort)] = struct{}{}
 	// Запускаем Go контейнер
 	config := &container.Config{
-		Image:        "dnonakolesax/noted-kernel:0.0.2",
+		Image:        dc.config.Image,
 		ExposedPorts: ports,
-		Env: []string{"RMQ_ADDR=amqp://guest:guest@rabbit:5672/", 
-					  "KERNEL_ID=1", 
-					  "MOUNT_PATH=/noted/codes/kernels", 
-					  "EXPORT_PREFIX=Export_block_", 
-					  "BLOCK_PREFIX=block_", 
-					  "CHAN_NAME=noted-kernels", 
-					  "BLOCK_TIMEOUT=30"},
+		Env: []string{"RMQ_ADDR=" + dc.config.Env.RMQAddr, 
+					  "KERNEL_ID=" + kernelID, 
+					  "MOUNT_PATH=" + dc.config.Env.MountPath, 
+					  "EXPORT_PREFIX=" + dc.config.Env.ExportPrefix, 
+					  "BLOCK_PREFIX=" + dc.config.Env.BlockPrefix, 
+					  "CHAN_NAME=" + dc.config.Env.ChanName, 
+					  "BLOCK_TIMEOUT=" + strconv.Itoa(int(dc.config.Env.BlockTimeout.Seconds()))},
 	}
 
 	hostConfig := &container.HostConfig{
 		//Runtime: "runsc", // Пытаемся использовать gVisor
 		Mounts: []mount.Mount{{
 			Type: mount.TypeVolume,
-			Source: "notedcode",
-			Target: "/noted/codes",
+			Source: dc.config.Volume.Source,
+			Target: dc.config.Volume.Target,
 		}},
 		//AutoRemove: true,
 	}
 
-	networkName := "noted-rmq-runners"
+	networkName := dc.config.Network
 	networkConfig := &network.NetworkingConfig{
 		EndpointsConfig: map[string]*network.EndpointSettings{
 			networkName: {

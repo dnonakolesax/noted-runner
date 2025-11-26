@@ -4,24 +4,31 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"os"
 	"os/exec"
 	"strings"
+	"sync"
 
 	"github.com/dnonakolesax/noted-runner/internal/docker"
+	"github.com/dnonakolesax/noted-runner/internal/preproc"
 )
 
 type Compile struct {
 	client       *docker.DockerClient
 	mountPath    string
 	kernelPrefix string
+	kernelMuxes  map[string]*sync.Mutex
+	kernelTypes  map[string]*preproc.KernelTypes
 }
 
 func NewCompilerUsecase(client *docker.DockerClient, mountPath string, kernelPrefix string) *Compile {
-	return &Compile{client: client, mountPath: mountPath, kernelPrefix: kernelPrefix}
+	return &Compile{client: client, mountPath: mountPath, kernelPrefix: kernelPrefix, kernelMuxes: make(map[string]*sync.Mutex), kernelTypes: map[string]*preproc.KernelTypes{}}
 }
 
-func (uc *Compile) StartKernel(id string) (string, error) {
-	id, err := uc.client.Create(fmt.Sprintf("%s%s", uc.kernelPrefix, id))
+func (uc *Compile) StartKernel(kernelID string, userID string) (string, error) {
+	uc.kernelMuxes[kernelID+userID] = &sync.Mutex{}
+	uc.kernelTypes[kernelID+userID] = preproc.NewKernelTypes()
+	id, err := uc.client.Create(fmt.Sprintf("%s%s_u%s", uc.kernelPrefix, kernelID, userID), kernelID)
 	if err != nil {
 		slog.Error("error starting kernel", slog.String("error", err.Error()))
 		return "", err
@@ -37,49 +44,50 @@ func (uc *Compile) StartKernel(id string) (string, error) {
 }
 
 func (uc *Compile) RunBlock(kernelID string, blockID string, userID string) error {
-	dir := fmt.Sprintf("%s/%s/%s", uc.mountPath, kernelID, userID)
-	cmd := exec.Command("mkdir", "-p", dir)
+	uc.kernelMuxes[kernelID+userID].Lock()
+	defer uc.kernelMuxes[kernelID+userID].Unlock()
+	filePath := fmt.Sprintf("%s/%s/%s/%s", uc.mountPath, kernelID, userID, "block_" + blockID)
 
-	err := cmd.Run()
+	file, err := os.ReadFile(filePath)
 
 	if err != nil {
-		slog.Info("error running mkdir")
 		return err
 	}
 
-	cmd = exec.Command("cp", "scripts/blockparser.py", dir)
+	types := uc.kernelTypes[kernelID+userID]
+	block := preproc.NewBlock(blockID, string(file), types)
 
-	err = cmd.Run()
+	err = block.Parse()
 
 	if err != nil {
-		slog.Info("error running cp")
+		return fmt.Errorf("error parsing block: %s", err)
+	}
+
+	code := block.FormExportFunc()
+
+	fmt.Printf("code: %s", code)
+
+	err = os.WriteFile(filePath + ".go", []byte(code), os.ModeExclusive)
+
+	if err != nil {
 		return err
 	}
 
-	cmd = exec.Command("cp", "scripts/base", dir)
-
-	err = cmd.Run()
-
+	cmd := exec.Command("goimports", "-w", filePath + ".go")
+	out, err := cmd.CombinedOutput()
 	if err != nil {
-		slog.Info("error running cp base")
-		return err
+		return fmt.Errorf("error running goimports: %v\nOutput: %s", err, out)
 	}
 
-	parserPath := fmt.Sprintf("%s/blockparser.py", dir)
-	fileName := strings.ReplaceAll(blockID, "-", "_")
-	slog.Info("before exec")
-	cmd = exec.Command("python3", parserPath, "block_"+fileName, dir)
-
-	data, err := cmd.Output()
-
-	slog.Info("after exec")
+	filePath2 := fmt.Sprintf("%s/%s/%s/%s.so", uc.mountPath, kernelID, userID, "block_" + strings.ReplaceAll(blockID, "-", "_"))
+	cmd = exec.Command("go", "build", "-buildmode=plugin", "-o", filePath2, filePath + ".go")
+	out, err = cmd.CombinedOutput()
 	if err != nil {
-		slog.Info("error running blockparser", slog.String("path", parserPath), slog.String("data", string(data)), slog.String("file", dir+"/block_"+fileName), slog.String("dir", dir))
-		return err
+		return fmt.Errorf("error running go build: %v\nOutput: %s", err, out)
 	}
 
 	slog.Info("before resp")
-	resp, err := http.Get("http://" + uc.kernelPrefix + kernelID + ":8080/run?block_id=" + blockID + "&user_id=1")
+	resp, err := http.Get("http://" + uc.kernelPrefix + kernelID + "_u" + userID + ":8080/run?block_id=" + blockID + "&user_id=" + userID)
 	slog.Info("after resp")
 	if err != nil {
 		fmt.Println("Ошибка запроса:", err)

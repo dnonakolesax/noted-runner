@@ -10,7 +10,7 @@ import (
 )
 
 type CompilerUsecase interface {
-	StartKernel(string) (string, error)
+	StartKernel(kernelID string, userID string) (string, error)
 	RunBlock(kernelID string, blockID string, userID string) error
 	StopKernel(string) error
 }
@@ -53,7 +53,7 @@ func (cd *ComilerDelivery) Compile(ctx *fasthttp.RequestCtx) {
 
 	slog.Info("starting kernel", slog.String("id", string(kernelID)))
 
-	id, err := cd.usecase.StartKernel(string(kernelID))
+	id, err := cd.usecase.StartKernel(string(kernelID), userId)
 	slog.Info("started kernel", slog.String("container id", id))
 
 	if err != nil {

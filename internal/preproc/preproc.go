@@ -2,24 +2,59 @@ package preproc
 
 import (
 	"fmt"
+	"go/ast"
+	"go/parser"
 	"go/scanner"
 	"go/token"
 	"strings"
 )
 
-type Block struct {
-	content   string
-	lineKinds map[int]map[Kind]bool
-	fnames    []string
-	vnames    []string
-	id        string
+type KernelTypes struct {
+	vars  map[string]string
+	funcs map[string]string
+	//types map[string]string
 }
 
-func NewBlock(id string, content string) *Block {
+func NewKernelTypes() *KernelTypes {
+	mv := make(map[string]string)
+	mf := make(map[string]string)
+	return &KernelTypes{
+		vars:  mv,
+		funcs: mf,
+	}
+}
+
+var knownTypes map[string]any = map[string]any{
+	"bool": struct{}{},
+
+	"string": struct{}{},
+	"byte":   struct{}{},
+	"rune":   struct{}{},
+
+	"int64":   struct{}{},
+	"int32":   struct{}{},
+	"int":     struct{}{},
+	"float32": struct{}{},
+	"float64": struct{}{},
+}
+
+type Block struct {
+	content     string
+	lineKinds   map[int]map[Kind]bool
+	fnames      []string
+	vnames      []string
+	id          string
+	types       *KernelTypes
+	reusedFuncs []string
+	reusedVars  []string
+}
+
+func NewBlock(id string, content string, types *KernelTypes) *Block {
 	fnames := make([]string, 0)
 	vnames := make([]string, 0)
 	lineKinds := make(map[int]map[Kind]bool)
-	return &Block{content: content, lineKinds: lineKinds, fnames: fnames, vnames: vnames, id: id}
+
+	return &Block{content: content, lineKinds: lineKinds, fnames: fnames, vnames: vnames, id: id, types: types}
 }
 
 type Kind string
@@ -63,7 +98,10 @@ func (b *Block) Parse() error {
 		inVarDecl         bool             // внутри var-объявления
 		pendingCandidates []identCandidate // кандидаты для :=
 	)
+	lines := strings.Split(b.content, "\n")
 
+	b.reusedFuncs = make([]string, 0)
+	b.reusedVars = make([]string, 0)
 	for {
 		pos, tok, lit := s.Scan()
 		if tok == token.EOF {
@@ -86,7 +124,14 @@ func (b *Block) Parse() error {
 				mark(line, KindFuncName)
 				b.fnames = append(b.fnames, lit)
 				lastWasFuncKeyword = false
+				b.types.funcs[lit] = "func"
 				break
+			}
+
+			if funcSignatureOpen {
+				if _, ok := knownTypes[lit]; ok {
+					b.types.funcs[b.fnames[len(b.fnames)-1]] = b.types.funcs[b.fnames[len(b.fnames)-1]] + lit
+				}
 			}
 
 			if inVarDecl {
@@ -99,15 +144,34 @@ func (b *Block) Parse() error {
 				})
 			}
 
+			if _, ok := b.types.vars[lit]; ok {
+				b.reusedVars = append(b.reusedVars, lit)
+			}
+
+			if _, ok := b.types.funcs[lit]; ok {
+				b.reusedFuncs = append(b.reusedFuncs, lit)
+			}
+
 		case token.VAR:
 			inVarDecl = true
 			pendingCandidates = nil
 
 		case token.DEFINE:
+			totalLine := ""
 			for _, c := range pendingCandidates {
 				mark(c.line, KindVarDecl)
 				b.vnames = append(b.vnames, c.name)
+				totalLine += lines[c.line-1]
 			}
+			tp, err := parseLineType(totalLine)
+
+			if err != nil {
+				return err
+			}
+
+			// TODO: implement multi-var support
+			b.types.vars[pendingCandidates[0].name] = tp
+
 			pendingCandidates = nil
 
 		case token.SEMICOLON:
@@ -131,13 +195,24 @@ func (b *Block) Parse() error {
 				insideFunc = false
 				funcLevel = -1
 			}
+		case token.LPAREN:
+			if funcSignatureOpen {
+				b.types.funcs[b.fnames[len(b.fnames)-1]] = b.types.funcs[b.fnames[len(b.fnames)-1]] + "("
+			}
+		case token.RPAREN:
+			if funcSignatureOpen {
+				b.types.funcs[b.fnames[len(b.fnames)-1]] = b.types.funcs[b.fnames[len(b.fnames)-1]] + ")"
+			}
+		case token.COMMA:
+			if funcSignatureOpen {
+				b.types.funcs[b.fnames[len(b.fnames)-1]] = b.types.funcs[b.fnames[len(b.fnames)-1]] + ","
+			}
 
 		default:
 			// остальные токены пропустить
 		}
 	}
 
-	lines := strings.Split(b.content, "\n")
 	for i, text := range lines {
 		lineNum := i + 1
 		if strings.TrimSpace(text) == "" {
@@ -147,49 +222,90 @@ func (b *Block) Parse() error {
 			mark(lineNum, KindOther)
 		}
 	}
+	// fmt.Printf("\n-----funcs-----\n")
+	// for k, v := range b.types.funcs {
+	// 	fmt.Printf("%s %s \n", k, v)
+	// }
+	// fmt.Printf("-----/funcs-----\n")
+	// fmt.Printf("\n-----vars-----\n")
+	// for k, v := range b.types.vars {
+	// 	fmt.Printf("%s %s \n", k, v)
+	// }
+	// fmt.Printf("-----/vars-----\n")
 	return nil
+}
+
+func parseLineType(totalLine string) (string, error) {
+	splitted := strings.Split(totalLine, ":=")
+	if len(splitted) != 2 {
+		return "", fmt.Errorf("not valid statement")
+	}
+	value := splitted[1]
+
+	expr, err := parser.ParseExpr(value)
+
+	if err != nil {
+		return "", err
+	}
+
+	switch v := expr.(type) {
+	case *ast.BasicLit:
+		return strings.ToLower(v.Kind.String()), nil
+	}
+	return "", fmt.Errorf("unknown type")
 }
 
 func (b *Block) FormExportFunc() string {
 	funcDefs := baseCopypaste
 	fMapName := "_"
 	vMapName := "_"
-	if len(b.fnames) != 0 {
-		fMapName = "varMap"
+	if len(b.fnames) != 0 || len (b.reusedFuncs) != 0 {
+		fMapName = "funcMap"
 	}
-	if len (b.vnames) != 0 {
-		vMapName = "funcMap"
+	if len(b.vnames) != 0 || len (b.reusedVars) != 0{
+		vMapName = "varMap"
 	}
-	mains := fmt.Sprintf("func Export_block%s(%s *map[string]any, %s *map[string]any){\n", b.id, fMapName, vMapName)
-	if len(b.fnames) != 0 {
+	bFname := strings.ReplaceAll(b.id, "-", "_")
+	mains := fmt.Sprintf("func Export_block_%s(%s *map[string]any, %s *map[string]any){\n", bFname, fMapName, vMapName)
+	if len(b.fnames) != 0 || len (b.reusedFuncs) != 0  {
 		mains += "\tfuncsMap := *funcMap \n"
 	}
-	if len(b.vnames) != 0 {
+	if len(b.vnames) != 0 || len (b.reusedVars) != 0  {
 		mains += "\tvarsMap := *varMap \n"
 	}
 	lines := strings.Split(b.content, "\n")
+	
+	if len(b.reusedFuncs) != 0 {
+		for _, funcName := range (b.reusedFuncs) {
+			mains += fmt.Sprintf("\t%s := funcsMap[\"%s\"].(%s)\n", funcName, funcName, b.types.funcs[funcName])
+		}
+	}
+
+	if len(b.reusedVars) != 0 {
+		for _, varName := range (b.reusedVars) {
+			mains += fmt.Sprintf("\t%s := varsMap[\"%s\"].(%s)\n", varName, varName, b.types.vars[varName])
+		}
+	}
 
 	for i, text := range lines {
 		lineNum := i + 1
-		kinds := []string{}
 		for k := range b.lineKinds[lineNum] {
 			switch k {
 			case KindFuncName, KindFuncBody:
-				funcDefs += lines[lineNum]
+				funcDefs += text + "\n"
 			case KindVarDecl, KindOther:
-				mains += lines[lineNum]
+				mains += "\t" + text + "\n"
 			}
 		}
-		fmt.Printf("%2d: %-40q -> %v\n", lineNum, text, kinds)
 	}
 	if len(b.fnames) != 0 {
-		for _, fname := range(b.fnames) {
+		for _, fname := range b.fnames {
 			mains += fmt.Sprintf("\tfuncsMap[\"%s\"] = %s \n", fname, fname)
 		}
 	}
 	if len(b.vnames) != 0 {
-		for _, vname := range(b.vnames) {
-			mains += fmt.Sprintf("\tfuncsMap[\"%s\"] = %s \n", vname, vname)
+		for _, vname := range b.vnames {
+			mains += fmt.Sprintf("\tvarsMap[\"%s\"] = %s \n", vname, vname)
 		}
 	}
 

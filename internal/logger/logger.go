@@ -17,13 +17,12 @@ import (
 type Loggers struct {
 	HTTP    *slog.Logger
 	HTTPc   *slog.Logger
-	GRPC    *slog.Logger
 	Service *slog.Logger
 	Repo    *slog.Logger
 	Infra   *slog.Logger
 }
 
-func NewLogger(cfg configs.LoggerConfig, layer string) *slog.Logger {
+func NewLogger(cfg *configs.LoggerConfig, layer string) *slog.Logger {
 	logFile := &lumberjack.Logger{
 		Filename:   fmt.Sprintf("/var/log/noted-runner/%s.log", layer),
 		MaxSize:    cfg.LogMaxFileSize,
@@ -82,11 +81,10 @@ func NewLogger(cfg configs.LoggerConfig, layer string) *slog.Logger {
 	return logger
 }
 
-func SetupLoggers(cfg configs.LoggerConfig) *Loggers {
+func SetupLoggers(cfg *configs.LoggerConfig) *Loggers {
 	return &Loggers{
 		HTTP:    NewLogger(cfg, "http-server"),
 		HTTPc:   NewLogger(cfg, "http-client"),
-		GRPC:    NewLogger(cfg, "grpc"),
 		Service: NewLogger(cfg, "service"),
 		Repo:    NewLogger(cfg, "repo"),
 		Infra:   NewLogger(cfg, "infra"),

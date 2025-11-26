@@ -12,7 +12,7 @@ type RabbitQueue struct {
 	Queue   <-chan amqp.Delivery
 }
 
-func NewRabbit(address string) (*RabbitQueue, error) {
+func NewRabbit(address string, chanName string) (*RabbitQueue, error) {
 	conn, err := amqp.Dial(address)
 	if err != nil {
 		slog.Error("unable to open connect to RabbitMQ server", slog.String("error", err.Error()))
@@ -26,7 +26,7 @@ func NewRabbit(address string) (*RabbitQueue, error) {
 	}
 
 	q, err := ch.QueueDeclare(
-		"noted-kernels", // name
+		chanName, // name
 		false,           // durable
 		false,           // delete when unused
 		false,           // exclusive

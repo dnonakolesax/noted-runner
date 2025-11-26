@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 
+	"github.com/dnonakolesax/noted-runner/internal/consts"
 	compilerDelivery "github.com/dnonakolesax/noted-runner/internal/delivery/compiler/v1/http"
 	"github.com/dnonakolesax/noted-runner/internal/model"
 	amqp "github.com/rabbitmq/amqp091-go"
@@ -24,7 +25,7 @@ func (rc *RunnerConsumer) Consume() {
 		err := json.Unmarshal(msg.Body, &kmessage)
 
 		if err != nil {
-			slog.Error("error unmarshaling kernel data", slog.String("error", err.Error()))
+			slog.Error("error unmarshaling kernel data", slog.String(consts.ErrorLoggerKey, err.Error()))
 			continue
 		}
 
