@@ -2,12 +2,12 @@ package docker
 
 import (
 	"context"
-	"log"
 	"log/slog"
 	"os"
 	"strconv"
 
 	"github.com/dnonakolesax/noted-runner/internal/configs"
+	"github.com/dnonakolesax/noted-runner/internal/logger"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/mount"
 	"github.com/docker/docker/api/types/network"
@@ -21,28 +21,28 @@ type DockerClient struct {
 	logger *slog.Logger
 }
 
-func NewDockerClient(config *configs.DockerConfig, logger *slog.Logger) (*DockerClient, error) {
+func NewDockerClient(config *configs.DockerConfig, dckLogger *slog.Logger) (*DockerClient, error) {
 	err := os.Setenv("DOCKER_HOST", config.Host)
 
 	if err != nil {
-		slog.Error("error setting dockerhost", slog.String("error", err.Error()))
+		dckLogger.Error("error setting dockerhost", logger.LogError(err))
 		return nil, err
 	}
 
 	cli, err := client.NewClientWithOpts(client.FromEnv, client.WithAPIVersionNegotiation())
 	if err != nil {
-		slog.Error("error creating client", slog.String("error", err.Error()))
+		dckLogger.Error("error creating client", logger.LogError(err))
 		return nil, err
 	}
 
 	_, err = cli.Ping(context.Background())
 
 	if err != nil {
-		slog.Error("error pinging client", slog.String("error", err.Error()))
+		dckLogger.Error("error pinging client", logger.LogError(err))
 		return nil, err
 	}
 
-	return &DockerClient{client: cli, config: config, logger: logger}, err
+	return &DockerClient{client: cli, config: config, logger: dckLogger}, err
 }
 
 func (dc *DockerClient) Close() {
@@ -52,7 +52,7 @@ func (dc *DockerClient) Close() {
 func (dc *DockerClient) Create(name string, kernelID string) (string, error) {
 	ports := make(nat.PortSet)
 	ports[nat.Port(dc.config.AppPort)] = struct{}{}
-	// Запускаем Go контейнер
+
 	config := &container.Config{
 		Image:        dc.config.Image,
 		ExposedPorts: ports,
@@ -66,7 +66,7 @@ func (dc *DockerClient) Create(name string, kernelID string) (string, error) {
 	}
 
 	hostConfig := &container.HostConfig{
-		//Runtime: "runsc", // Пытаемся использовать gVisor
+		//Runtime: "runsc", 
 		Mounts: []mount.Mount{{
 			Type: mount.TypeVolume,
 			Source: dc.config.Volume.Source,
@@ -92,7 +92,7 @@ func (dc *DockerClient) Create(name string, kernelID string) (string, error) {
 		name,
 	)
 	if err != nil {
-		log.Printf("Ошибка создания контейнера (возможно gVisor недоступен): %v", err)
+		dc.logger.Error("error creating container", logger.LogError(err))
 		return "", err
 	}
 	return resp.ID, nil
@@ -101,7 +101,7 @@ func (dc *DockerClient) Create(name string, kernelID string) (string, error) {
 func (dc *DockerClient) Run(id string) error {
 	err := dc.client.ContainerStart(context.Background(), id, container.StartOptions{})
 	if err != nil {
-		log.Fatalf("Ошибка запуска: %v", err)
+		dc.logger.Error("error running container", logger.LogError(err))
 	}
 	return err
 }
@@ -109,7 +109,7 @@ func (dc *DockerClient) Run(id string) error {
 func (dc *DockerClient) Remove(id string) error {
 	err := dc.client.ContainerStop(context.Background(), id, container.StopOptions{})
 	if err != nil {
-		log.Fatalf("Ошибка остановки: %v", err)
+		dc.logger.Error("error stopping container", logger.LogError(err))
 		if client.IsErrConnectionFailed(err) {
 			return nil
 		}
@@ -118,7 +118,7 @@ func (dc *DockerClient) Remove(id string) error {
 
 	err = dc.client.ContainerRemove(context.Background(), id, container.RemoveOptions{})
 	if err != nil {
-		log.Fatalf("Ошибка удаления: %v", err)
+		dc.logger.Error("error removing container", logger.LogError(err))
 		if client.IsErrConnectionFailed(err) {
 			return nil
 		}

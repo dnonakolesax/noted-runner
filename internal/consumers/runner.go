@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"log/slog"
 
-	"github.com/dnonakolesax/noted-runner/internal/consts"
 	compilerDelivery "github.com/dnonakolesax/noted-runner/internal/delivery/compiler/v1/http"
+	"github.com/dnonakolesax/noted-runner/internal/logger"
 	"github.com/dnonakolesax/noted-runner/internal/model"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
@@ -13,10 +13,11 @@ import (
 type RunnerConsumer struct {
 	messages  <-chan amqp.Delivery
 	delivery *compilerDelivery.ComilerDelivery
+	logger *slog.Logger
 }
 
-func NewRunnerConsumer(messages <-chan amqp.Delivery, delivery *compilerDelivery.ComilerDelivery) *RunnerConsumer {
-	return &RunnerConsumer{messages: messages, delivery: delivery}
+func NewRunnerConsumer(messages <-chan amqp.Delivery, delivery *compilerDelivery.ComilerDelivery, logger *slog.Logger) *RunnerConsumer {
+	return &RunnerConsumer{messages: messages, delivery: delivery, logger: logger}
 }
 
 func (rc *RunnerConsumer) Consume() {
@@ -25,11 +26,10 @@ func (rc *RunnerConsumer) Consume() {
 		err := json.Unmarshal(msg.Body, &kmessage)
 
 		if err != nil {
-			slog.Error("error unmarshaling kernel data", slog.String(consts.ErrorLoggerKey, err.Error()))
+			rc.logger.Error("error unmarshaling kernel data", logger.LogError(err))
 			continue
 		}
 
 		rc.delivery.SendMemes(kmessage.KernelID, string(msg.Body))
 	}
 }
-

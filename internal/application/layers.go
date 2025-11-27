@@ -17,18 +17,19 @@ func (a *App) SetupLayers() error {
 	/************************************************/
 	/*                USECASES INIT                 */
 	/************************************************/
-	uc := usecase.NewCompilerUsecase(a.components.Docker, a.configs.Docker.Env.MountPath, a.configs.Docker.Prefix)
+	uc := usecase.NewCompilerUsecase(a.components.Docker, a.configs.Docker.Env.MountPath, a.configs.Docker.Prefix,
+		a.loggers.Service, a.configs.Service, a.components.HTTPC)
 
 	/************************************************/
 	/*                DELIVERY INIT                 */
 	/************************************************/
-	cd := compilerDelivery.NewComilerDelivery(uc)
+	cd := compilerDelivery.NewComilerDelivery(uc, a.loggers.HTTP)
 	a.layers.compileHTTP = cd
 
 	/************************************************/
 	/*                CONSUMERS INIT                */
 	/************************************************/
-	consumer := consumers.NewRunnerConsumer(a.components.Rabbit.Queue, cd)
+	consumer := consumers.NewRunnerConsumer(a.components.Rabbit.Queue, cd, a.loggers.Infra)
 	a.layers.compileResultConsumer = consumer
 	return nil
 }

@@ -2,6 +2,8 @@ service:
   base-path: /compiler # Базовый путь для всех запросов (https://<url>/api/v<version>/<base-path>/...)
   port: 8800 
   metrics-port: 8802
+  compile-timeout: 30s
+  cmd-timeout: 10s
   log-level: debug
   log-add-source: true
   log-timeout: 10s

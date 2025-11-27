@@ -3,38 +3,40 @@ package rabbit
 import (
 	"log/slog"
 
+	"github.com/dnonakolesax/noted-runner/internal/logger"
 	amqp "github.com/rabbitmq/amqp091-go"
 )
 
 type RabbitQueue struct {
 	conn    *amqp.Connection
 	channel *amqp.Channel
+	logger  *slog.Logger
 	Queue   <-chan amqp.Delivery
 }
 
-func NewRabbit(address string, chanName string) (*RabbitQueue, error) {
+func NewRabbit(address string, chanName string, rmqLogger *slog.Logger) (*RabbitQueue, error) {
 	conn, err := amqp.Dial(address)
 	if err != nil {
-		slog.Error("unable to open connect to RabbitMQ server", slog.String("error", err.Error()))
+		rmqLogger.Error("unable to open connect to RabbitMQ server", logger.LogError(err))
 		return nil, err
 	}
 
 	ch, err := conn.Channel()
 	if err != nil {
-		slog.Error("failed to open a channel", slog.String("error", err.Error()))
+		rmqLogger.Error("failed to open a channel", logger.LogError(err))
 		return nil, err
 	}
 
 	q, err := ch.QueueDeclare(
 		chanName, // name
-		false,           // durable
-		false,           // delete when unused
-		false,           // exclusive
-		false,           // no-wait
-		nil,             // arguments
+		false,    // durable
+		false,    // delete when unused
+		false,    // exclusive
+		false,    // no-wait
+		nil,      // arguments
 	)
 	if err != nil {
-		slog.Error("failed to declare a queue", slog.String("error", err.Error()))
+		rmqLogger.Error("failed to declare a queue", logger.LogError(err))
 		return nil, err
 	}
 
@@ -48,7 +50,7 @@ func NewRabbit(address string, chanName string) (*RabbitQueue, error) {
 		nil,    // args
 	)
 	if err != nil {
-		slog.Error("failed to register a consumer", slog.String("error", err.Error()))
+		rmqLogger.Error("failed to register a consumer", logger.LogError(err))
 		return nil, err
 	}
 	return &RabbitQueue{conn: conn, channel: ch, Queue: messages}, nil
@@ -56,9 +58,15 @@ func NewRabbit(address string, chanName string) (*RabbitQueue, error) {
 
 func (rq *RabbitQueue) Close() {
 	if rq.channel != nil {
-		_ = rq.channel.Close()
+		err := rq.channel.Close()
+		if err != nil {
+			rq.logger.Error("error closing rq chan", logger.LogError(err))
+		}
 	}
 	if rq.conn != nil {
-		_ = rq.conn.Close()
+		err := rq.conn.Close()
+		if err != nil {
+			rq.logger.Error("error closing rq conn", logger.LogError(err))
+		}
 	}
 }
