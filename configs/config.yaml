@@ -1,7 +1,7 @@
 service:
   base-path: /compiler # Базовый путь для всех запросов (https://<url>/api/v<version>/<base-path>/...)
-  port: 8800 
-  metrics-port: 8802
+  port: 8700 
+  metrics-port: 8702
   compile-timeout: 30s
   cmd-timeout: 10s
   log-level: debug
@@ -14,7 +14,7 @@ service:
 docker:
   host: "unix:///var/run/docker.sock"
   image: "dnonakolesax/noted-kernel:0.0.2"
-  network: "noted-rmq-runners"
+  network: "noted-infra_infra-rmq"
   prefix: "noted-kernel_"
   app-port: "8080"
   volume:
