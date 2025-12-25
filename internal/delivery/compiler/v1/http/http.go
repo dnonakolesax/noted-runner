@@ -4,6 +4,7 @@ import (
 	"log/slog"
 
 	"github.com/dnonakolesax/noted-runner/internal/logger"
+	"github.com/dnonakolesax/noted-runner/internal/middlewares"
 	"github.com/dnonakolesax/noted-runner/internal/model"
 	"github.com/fasthttp/router"
 	"github.com/fasthttp/websocket"
@@ -21,12 +22,13 @@ type ComilerDelivery struct {
 	kernelListeners map[string]string
 	usecase         CompilerUsecase
 	logger          *slog.Logger
+	authMW          *middlewares.AuthMW
 }
 
-func NewComilerDelivery(usecase CompilerUsecase, logger *slog.Logger) *ComilerDelivery {
+func NewComilerDelivery(usecase CompilerUsecase, logger *slog.Logger, authMW *middlewares.AuthMW) *ComilerDelivery {
 	activeConns := make(map[string]*websocket.Conn)
 	kernelListeners := make(map[string]string)
-	return &ComilerDelivery{activeConns: activeConns, kernelListeners: kernelListeners, usecase: usecase, logger: logger}
+	return &ComilerDelivery{activeConns: activeConns, kernelListeners: kernelListeners, usecase: usecase, logger: logger, authMW: authMW}
 }
 
 var upgrader = websocket.FastHTTPUpgrader{
@@ -108,7 +110,7 @@ func (cd *ComilerDelivery) Compile(ctx *fasthttp.RequestCtx) {
 					cd.logger.Error("error sending message", logger.LogError(err))
 					err := conn.Close()
 					if err != nil {
-						cd.logger.Error("error closing conn",logger.LogError(err))
+						cd.logger.Error("error closing conn", logger.LogError(err))
 					}
 					break
 				}
@@ -136,5 +138,5 @@ func (cd *ComilerDelivery) SendMemes(kernelId string, memes string) {
 
 func (cd *ComilerDelivery) RegisterRoutes(apiGroup *router.Group) {
 	group := apiGroup.Group("/ws")
-	group.ANY("/", cd.Compile)
+	group.ANY("/", cd.authMW.AuthMiddleware(cd.Compile))
 }

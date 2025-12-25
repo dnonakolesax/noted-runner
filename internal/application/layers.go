@@ -3,6 +3,7 @@ package application
 import (
 	"github.com/dnonakolesax/noted-runner/internal/consumers"
 	compilerDelivery "github.com/dnonakolesax/noted-runner/internal/delivery/compiler/v1/http"
+	"github.com/dnonakolesax/noted-runner/internal/middlewares"
 	"github.com/dnonakolesax/noted-runner/internal/usecase"
 )
 
@@ -21,9 +22,14 @@ func (a *App) SetupLayers() error {
 		a.loggers.Service, a.configs.Service, a.components.HTTPC)
 
 	/************************************************/
+	/*              MIDDLEWARE INIT                 */
+	/************************************************/
+	authMW := middlewares.NewAuthMW(*a.components.GRPCAC, a.loggers.HTTP)
+
+	/************************************************/
 	/*                DELIVERY INIT                 */
 	/************************************************/
-	cd := compilerDelivery.NewComilerDelivery(uc, a.loggers.HTTP)
+	cd := compilerDelivery.NewComilerDelivery(uc, a.loggers.HTTP, authMW)
 	a.layers.compileHTTP = cd
 
 	/************************************************/
