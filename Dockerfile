@@ -15,6 +15,8 @@ COPY --from=modules /go/pkg /go/pkg
 RUN useradd -u 10001 runner-runner
 
 RUN mkdir -p /noted-runner
+RUN mkdir -p /noted/codes/kernels
+RUN chown -R runner-runner:runner-runner /noted/codes
 ADD . /noted-runner
 WORKDIR /noted-runner
 
@@ -27,6 +29,7 @@ FROM gcr.io/distroless/cc-debian12
 
 # Копируем пользователя без прав с прошлого этапа
 COPY --from=builder /etc/passwd /etc/passwd
+COPY --from=builder --chown=runner-runner:runner-runner /noted/codes /noted/codes
 # Запускаем от имени этого пользователя
 USER runner-runner
 
