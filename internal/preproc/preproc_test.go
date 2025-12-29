@@ -63,7 +63,7 @@ func TestParse(t *testing.T) {
 			t.Fatalf("testparse got error %v, expected %v \n", err, testCase.expected)
 		}
 
-		code := block.FormExportFunc()
+		code := block.FormExportFunc("1")
 
 		fmt.Printf("code: %s", code)
 	}
@@ -98,7 +98,7 @@ func TestMultiple(t *testing.T) {
 				t.Fatalf("testparse got error %v, expected %v \n", err, testCase.expected)
 			}
 
-			code := block.FormExportFunc()
+			code := block.FormExportFunc("1")
 
 			fmt.Printf("code for %s: %s", sidx, code)
 		}

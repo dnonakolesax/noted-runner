@@ -255,34 +255,34 @@ func parseLineType(totalLine string) (string, error) {
 	return "", fmt.Errorf("unknown type")
 }
 
-func (b *Block) FormExportFunc() string {
+func (b *Block) FormExportFunc(attempt string) string {
 	funcDefs := baseCopypaste
 	fMapName := "_"
 	vMapName := "_"
-	if len(b.fnames) != 0 || len (b.reusedFuncs) != 0 {
+	if len(b.fnames) != 0 || len(b.reusedFuncs) != 0 {
 		fMapName = "funcMap"
 	}
-	if len(b.vnames) != 0 || len (b.reusedVars) != 0{
+	if len(b.vnames) != 0 || len(b.reusedVars) != 0 {
 		vMapName = "varMap"
 	}
 	bFname := strings.ReplaceAll(b.id, "-", "_")
-	mains := fmt.Sprintf("func Export_block_%s(%s *map[string]any, %s *map[string]any){\n", bFname, fMapName, vMapName)
-	if len(b.fnames) != 0 || len (b.reusedFuncs) != 0  {
+	mains := fmt.Sprintf("func Export_block_%s_%s(%s *map[string]any, %s *map[string]any){\n", bFname, attempt, fMapName, vMapName)
+	if len(b.fnames) != 0 || len(b.reusedFuncs) != 0 {
 		mains += "\tfuncsMap := *funcMap \n"
 	}
-	if len(b.vnames) != 0 || len (b.reusedVars) != 0  {
+	if len(b.vnames) != 0 || len(b.reusedVars) != 0 {
 		mains += "\tvarsMap := *varMap \n"
 	}
 	lines := strings.Split(b.content, "\n")
-	
+
 	if len(b.reusedFuncs) != 0 {
-		for _, funcName := range (b.reusedFuncs) {
+		for _, funcName := range b.reusedFuncs {
 			mains += fmt.Sprintf("\t%s := funcsMap[\"%s\"].(%s)\n", funcName, funcName, b.types.funcs[funcName])
 		}
 	}
 
 	if len(b.reusedVars) != 0 {
-		for _, varName := range (b.reusedVars) {
+		for _, varName := range b.reusedVars {
 			mains += fmt.Sprintf("\t%s := varsMap[\"%s\"].(%s)\n", varName, varName, b.types.vars[varName])
 		}
 	}

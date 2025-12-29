@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -18,24 +19,26 @@ import (
 )
 
 type Compile struct {
-	client       *docker.DockerClient
-	mountPath    string
-	kernelPrefix string
-	kernelMuxes  map[string]*sync.Mutex
-	kernelTypes  map[string]*preproc.KernelTypes
-	logger       *slog.Logger
-	sConfig      *configs.ServiceConfig
-	hClient      *httpclient.HTTPClient
+	client         *docker.DockerClient
+	mountPath      string
+	kernelPrefix   string
+	kernelMuxes    map[string]*sync.Mutex
+	kernelTypes    map[string]*preproc.KernelTypes
+	kernelAttempts map[string]int
+	logger         *slog.Logger
+	sConfig        *configs.ServiceConfig
+	hClient        *httpclient.HTTPClient
 }
 
 func NewCompilerUsecase(client *docker.DockerClient, mountPath string, kernelPrefix string, logger *slog.Logger,
 	sConfig *configs.ServiceConfig, hClient *httpclient.HTTPClient) *Compile {
 	return &Compile{client: client, mountPath: mountPath, kernelPrefix: kernelPrefix,
-		kernelMuxes: make(map[string]*sync.Mutex),
-		kernelTypes: map[string]*preproc.KernelTypes{},
-		logger:      logger,
-		sConfig:     sConfig,
-		hClient:     hClient,
+		kernelMuxes:    make(map[string]*sync.Mutex),
+		kernelTypes:    map[string]*preproc.KernelTypes{},
+		kernelAttempts: map[string]int{},
+		logger:         logger,
+		sConfig:        sConfig,
+		hClient:        hClient,
 	}
 }
 
@@ -60,12 +63,17 @@ func (uc *Compile) StartKernel(kernelID string, userID string) (string, error) {
 func (uc *Compile) RunBlock(kernelID string, blockID string, userID string) error {
 	uc.kernelMuxes[kernelID+userID].Lock()
 	defer uc.kernelMuxes[kernelID+userID].Unlock()
+	att := uc.kernelAttempts[kernelID+userID+blockID] + 1
+	uc.kernelAttempts[kernelID + userID + blockID] = att
+
+	attempt := "at" + strconv.Itoa(att)
+	sourcePath := fmt.Sprintf("%s/%s/%s", uc.mountPath, kernelID, "block_"+blockID)
 	filePath := fmt.Sprintf("%s/%s/%s/%s", uc.mountPath, kernelID, userID, "block_"+blockID)
 
-	file, err := os.ReadFile(filePath)
+	file, err := os.ReadFile(sourcePath)
 
 	if err != nil {
-		uc.logger.Error("error reading file with block", logger.LogError(err), slog.String("file", filePath))
+		uc.logger.Error("error reading file with block", logger.LogError(err), slog.String("file", sourcePath))
 		return err
 	}
 
@@ -79,7 +87,7 @@ func (uc *Compile) RunBlock(kernelID string, blockID string, userID string) erro
 		return fmt.Errorf("error parsing block: %s", err)
 	}
 
-	code := block.FormExportFunc()
+	code := block.FormExportFunc(attempt)
 
 	//fmt.Printf("code: %s", code)
 
@@ -111,7 +119,7 @@ func (uc *Compile) RunBlock(kernelID string, blockID string, userID string) erro
 	}
 
 	//slog.Info("before resp")
-	resp, err := http.Get("http://" + uc.kernelPrefix + kernelID + "_u" + userID + ":8080/run?block_id=" + blockID + "&user_id=" + userID)
+	resp, err := http.Get("http://" + uc.kernelPrefix + kernelID + "_u" + userID + ":8080/run?block_id=" + blockID + "&user_id=" + userID + "&attempt=" + attempt)
 	//slog.Info("after resp")
 	if err != nil {
 		uc.logger.Error("error sending http", logger.LogError(err))
