@@ -3,6 +3,7 @@ package http
 import (
 	"log/slog"
 
+	"github.com/dnonakolesax/noted-runner/internal/consts"
 	"github.com/dnonakolesax/noted-runner/internal/logger"
 	"github.com/dnonakolesax/noted-runner/internal/middlewares"
 	"github.com/dnonakolesax/noted-runner/internal/model"
@@ -23,12 +24,13 @@ type ComilerDelivery struct {
 	usecase         CompilerUsecase
 	logger          *slog.Logger
 	authMW          *middlewares.AuthMW
+	accessMW        *middlewares.AccessMW
 }
 
-func NewComilerDelivery(usecase CompilerUsecase, logger *slog.Logger, authMW *middlewares.AuthMW) *ComilerDelivery {
+func NewComilerDelivery(usecase CompilerUsecase, logger *slog.Logger, authMW *middlewares.AuthMW, accessMW *middlewares.AccessMW) *ComilerDelivery {
 	activeConns := make(map[string]*websocket.Conn)
 	kernelListeners := make(map[string]string)
-	return &ComilerDelivery{activeConns: activeConns, kernelListeners: kernelListeners, usecase: usecase, logger: logger, authMW: authMW}
+	return &ComilerDelivery{activeConns: activeConns, kernelListeners: kernelListeners, usecase: usecase, logger: logger, authMW: authMW, accessMW: accessMW}
 }
 
 var upgrader = websocket.FastHTTPUpgrader{
@@ -38,7 +40,7 @@ var upgrader = websocket.FastHTTPUpgrader{
 }
 
 func (cd *ComilerDelivery) Compile(ctx *fasthttp.RequestCtx) {
-	userId := "1"
+	userId := ctx.Request.UserValue(consts.CtxUserIDKey).(string)
 
 	kernelID := ctx.QueryArgs().Peek("kernel-id")
 
@@ -138,5 +140,5 @@ func (cd *ComilerDelivery) SendMemes(kernelId string, memes string) {
 
 func (cd *ComilerDelivery) RegisterRoutes(apiGroup *router.Group) {
 	group := apiGroup.Group("/ws")
-	group.ANY("/", cd.authMW.AuthMiddleware(cd.Compile))
+	group.ANY("/", cd.authMW.AuthMiddleware(cd.accessMW.MW(cd.Compile)))
 }

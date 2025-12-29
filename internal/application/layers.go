@@ -25,11 +25,12 @@ func (a *App) SetupLayers() error {
 	/*              MIDDLEWARE INIT                 */
 	/************************************************/
 	authMW := middlewares.NewAuthMW(*a.components.GRPCAC, a.loggers.HTTP)
+	accessMW := middlewares.NewAccessMW(*a.components.GRPCAcC, a.loggers.HTTP)
 
 	/************************************************/
 	/*                DELIVERY INIT                 */
 	/************************************************/
-	cd := compilerDelivery.NewComilerDelivery(uc, a.loggers.HTTP, authMW)
+	cd := compilerDelivery.NewComilerDelivery(uc, a.loggers.HTTP, authMW, accessMW)
 	a.layers.compileHTTP = cd
 
 	/************************************************/

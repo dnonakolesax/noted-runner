@@ -1,0 +1,19 @@
+syntax = "proto3";
+
+// protoc --go_out=. --go-grpc_out=. --go-grpc_opt=paths=source_relative --go_opt=paths=source_relative *.proto 
+option go_package = "./;access";
+
+package access;
+
+message AccessRequest {
+    string UserID=1;
+    string FileID=2;
+}
+
+message AccessData {
+    string Access=1;
+}
+
+service AcessService {
+    rpc FileAccessCtx(AccessRequest) returns (AccessData) {}
+}

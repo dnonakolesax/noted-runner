@@ -8,16 +8,18 @@ import (
 	"github.com/dnonakolesax/noted-runner/internal/docker"
 	"github.com/dnonakolesax/noted-runner/internal/httpclient"
 	"github.com/dnonakolesax/noted-runner/internal/rabbit"
-	pb "github.com/dnonakolesax/noted-runner/internal/usecase/auth/proto"
+	accessPb "github.com/dnonakolesax/noted-runner/internal/usecase/access/proto"
+	authPb "github.com/dnonakolesax/noted-runner/internal/usecase/auth/proto"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials/insecure"
 )
 
 type Components struct {
-	Docker *docker.DockerClient
-	Rabbit *rabbit.RabbitQueue
-	HTTPC  *httpclient.HTTPClient
-	GRPCAC *pb.AuthServiceClient
+	Docker  *docker.DockerClient
+	Rabbit  *rabbit.RabbitQueue
+	HTTPC   *httpclient.HTTPClient
+	GRPCAC  *authPb.AuthServiceClient
+	GRPCAcC *accessPb.AcessServiceClient
 }
 
 func (a *App) SetupComponents() error {
@@ -66,7 +68,7 @@ func (a *App) SetupComponents() error {
 	a.components.HTTPC = httpc
 
 	/************************************************/
-	/*               GRPC CLIENT INIT               */
+	/*             GRPC AUTH CLIENT INIT            */
 	/************************************************/
 	conn, err := grpc.NewClient("auth:8801", grpc.WithTransportCredentials(insecure.NewCredentials()))
 	if err != nil {
@@ -75,7 +77,20 @@ func (a *App) SetupComponents() error {
 	}
 	defer conn.Close()
 
-	c := pb.NewAuthServiceClient(conn)
+	c := authPb.NewAuthServiceClient(conn)
+	
+	/************************************************/
+	/*             GRPC ACC CLIENT INIT             */
+	/************************************************/
+	accessConn, err := grpc.NewClient("notes:8901", grpc.WithTransportCredentials(insecure.NewCredentials()))
+	if err != nil {
+		a.initLogger.ErrorContext(context.Background(), "Error connecting grpc access",
+			slog.String(consts.ErrorLoggerKey, err.Error()))
+	}
+	defer conn.Close()
+
+	acc := accessPb.NewAcessServiceClient(accessConn)
 	a.components.GRPCAC = &c
+	a.components.GRPCAcC = &acc
 	return nil
 }
