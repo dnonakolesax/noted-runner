@@ -34,7 +34,7 @@ func (am *AuthMW) AuthMiddleware(h fasthttp.RequestHandler) fasthttp.RequestHand
 			ctx.SetStatusCode(fasthttp.StatusUnauthorized)
 			return
 		}
-		header := metadata.New(map[string]string{"trace_id": "12345"})
+		header := metadata.New(map[string]string{"trace_id": string(ctx.Request.Header.Peek("X-Request-Id"))})
 
 		pCtx := metadata.NewOutgoingContext(context.Background(), header)
 		tokens, err := am.client.AuthUserIDCtx(pCtx, &auth.UserTokens{Auth: string(at), Refresh: string(rt)})
