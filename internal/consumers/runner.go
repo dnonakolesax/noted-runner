@@ -22,6 +22,7 @@ func NewRunnerConsumer(messages <-chan amqp.Delivery, delivery *compilerDelivery
 
 func (rc *RunnerConsumer) Consume() {
 	for msg := range rc.messages {
+		rc.logger.Info("received rmq message")
 		var kmessage model.KernelMessage
 		err := json.Unmarshal(msg.Body, &kmessage)
 
