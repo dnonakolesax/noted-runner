@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/automerge/automerge-go"
 	"github.com/dnonakolesax/noted-runner/internal/configs"
 	"github.com/dnonakolesax/noted-runner/internal/docker"
 	"github.com/dnonakolesax/noted-runner/internal/httpclient"
@@ -45,7 +46,8 @@ func NewCompilerUsecase(client *docker.DockerClient, mountPath string, kernelPre
 func (uc *Compile) StartKernel(kernelID string, userID string) (string, error) {
 	uc.kernelMuxes[kernelID+userID] = &sync.Mutex{}
 	uc.kernelTypes[kernelID+userID] = preproc.NewKernelTypes()
-	id, err := uc.client.Create(fmt.Sprintf("%s%s_u%s", uc.kernelPrefix, kernelID, userID), kernelID)
+	//id, err := uc.client.Create(fmt.Sprintf("%s%s_u%s", uc.kernelPrefix, kernelID, userID), kernelID)
+	id, err := uc.client.Create(fmt.Sprintf("%s%s", uc.kernelPrefix, kernelID), kernelID)
 	if err != nil {
 		uc.logger.Error("error starting kernel", logger.LogError(err))
 		return "", err
@@ -68,6 +70,13 @@ func (uc *Compile) RunBlock(kernelID string, blockID string, userID string) erro
 
 	attempt := "at" + strconv.Itoa(att)
 	sourcePath := fmt.Sprintf("%s/%s/%s", uc.mountPath, kernelID, "block_"+blockID)
+
+	err := os.MkdirAll(fmt.Sprintf("%s/%s/%s", uc.mountPath, kernelID, userID), 0o777)
+	if err != nil {
+		uc.logger.Error("error mkdirall:", logger.LogError(err), slog.String("file", sourcePath))
+		return err
+	}
+
 	filePath := fmt.Sprintf("%s/%s/%s/%s", uc.mountPath, kernelID, userID, "block_"+blockID)
 
 	file, err := os.ReadFile(sourcePath)
@@ -77,8 +86,12 @@ func (uc *Compile) RunBlock(kernelID string, blockID string, userID string) erro
 		return err
 	}
 
+	doc, _ := automerge.Load(file)
+
+	dataFile, _ := doc.Path("text").Text().Get()
+
 	types := uc.kernelTypes[kernelID+userID]
-	block := preproc.NewBlock(blockID, string(file), types)
+	block := preproc.NewBlock(blockID, dataFile, types)
 
 	err = block.Parse()
 
@@ -98,28 +111,30 @@ func (uc *Compile) RunBlock(kernelID string, blockID string, userID string) erro
 		return err
 	}
 
-	ctxI, cancelI := context.WithTimeout(context.Background(), uc.sConfig.CMDTimeout)
-	defer cancelI()
-	cmd := exec.CommandContext(ctxI, "goimports", "-w", filePath+".go")
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		uc.logger.Error("error running goimports", logger.LogError(err), slog.String("file", filePath+".go"))
-		return fmt.Errorf("error running goimports: %v\nOutput: %s", err, out)
-	}
+	// ctxI, cancelI := context.WithTimeout(context.Background(), uc.sConfig.CMDTimeout)
+	// defer cancelI()
+	// cmd := exec.CommandContext(ctxI, "goimports", "-w", filePath+".go")
+	// out, err := cmd.CombinedOutput()
+	// if err != nil {
+	// 	uc.logger.Error("error running goimports", logger.LogError(err), slog.String("file", filePath+".go"))
+	// 	return fmt.Errorf("error running goimports: %v\nOutput: %s", err, out)
+	// }
 
 	ctx, cancel := context.WithTimeout(context.Background(), uc.sConfig.CompileTimeout)
 	defer cancel()
 
-	filePath2 := fmt.Sprintf("%s/%s/%s/%s.so", uc.mountPath, kernelID, userID, "block_"+strings.ReplaceAll(blockID, "-", "_"))
-	cmd = exec.CommandContext(ctx, "go", "build", "-buildmode=plugin", "-o", filePath2, filePath+".go")
-	out, err = cmd.CombinedOutput()
+	filePath2 := fmt.Sprintf("%s/%s/%s/%s_%s.so", uc.mountPath, kernelID, userID, "block_"+strings.ReplaceAll(blockID, "-", "_"), attempt)
+	cmd := exec.CommandContext(ctx, "go", "build", "-buildmode=plugin", "-o", filePath2, filePath+".go")
+	out, err := cmd.CombinedOutput()
 	if err != nil {
 		uc.logger.Error("error building", logger.LogError(err), slog.String("file", filePath2))
 		return fmt.Errorf("error running go build: %v\nOutput: %s", err, out)
 	}
 
+	os.Chmod(filePath2, 0o777)
 	//slog.Info("before resp")
-	resp, err := http.Get("http://" + uc.kernelPrefix + kernelID + "_u" + userID + ":8080/run?block_id=" + blockID + "&user_id=" + userID + "&attempt=" + attempt)
+	//resp, err := http.Get("http://" + uc.kernelPrefix + kernelID + "_u" + userID + ":8080/run?block_id=" + blockID + "&user_id=" + userID + "&attempt=" + attempt)
+	resp, err := http.Get("http://" + uc.kernelPrefix + kernelID + ":8080/run?block_id=" + blockID + "&user_id=" + userID + "&attempt=" + attempt)
 	//slog.Info("after resp")
 	if err != nil {
 		uc.logger.Error("error sending http", logger.LogError(err))

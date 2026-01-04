@@ -18,7 +18,7 @@ import (
 // @host oauth.dnk33.com
 // @BasePath /api/v1/compile.
 func main() {
-	configsPath := flag.String("configs", "./configs", "Path to configs")
+	configsPath := flag.String("configs", "/cfg", "Path to configs")
 	flag.Parse()
 
 	a, err := application.NewApp(*configsPath)

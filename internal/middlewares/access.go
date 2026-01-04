@@ -37,7 +37,7 @@ func (am *AccessMW) MW(h fasthttp.RequestHandler) fasthttp.RequestHandler {
 		}
 
 		if !strings.Contains(access.Access, "x") {
-			am.logger.WarnContext(contex, "user has no right to execute")
+			am.logger.WarnContext(contex, "user has no right to execute", slog.String("access", access.Access))
 			ctx.SetStatusCode(fasthttp.StatusUnauthorized)
 			return
 		}

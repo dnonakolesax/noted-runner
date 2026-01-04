@@ -1,11 +1,14 @@
 package preproc
 
 import (
+	"bytes"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/parser"
 	"go/scanner"
 	"go/token"
+	"log/slog"
 	"strings"
 )
 
@@ -255,6 +258,146 @@ func parseLineType(totalLine string) (string, error) {
 	return "", fmt.Errorf("unknown type")
 }
 
+func collectUsedNames(f *ast.File) map[string]bool {
+	used := make(map[string]bool)
+
+	// Рекурсивный обход AST
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch node := n.(type) {
+		case *ast.SelectorExpr:
+			// Обрабатываем выражения вида package.Identifier
+			if ident, ok := node.X.(*ast.Ident); ok {
+				used[ident.Name] = true
+			}
+		case *ast.Ident:
+			// Игнорируем имена, которые являются пакетами в импортах
+			// (они обрабатываются в SelectorExpr)
+			// Но учитываем прямые использования без селектора
+			if !isPackageName(f, node.Name) {
+				used[node.Name] = true
+			}
+		}
+		return true
+	})
+
+	return used
+}
+
+func isPackageName(f *ast.File, name string) bool {
+	for _, imp := range f.Imports {
+		if imp.Name != nil {
+			if imp.Name.Name == name {
+				return true
+			}
+		} else {
+			// Извлекаем имя пакета из пути
+			path := strings.Trim(imp.Path.Value, `"`)
+			parts := strings.Split(path, "/")
+			pkgName := parts[len(parts)-1]
+			if pkgName == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func filterImports(f *ast.File, usedNames map[string]bool) {
+	var filteredImports []*ast.ImportSpec
+
+	for _, imp := range f.Imports {
+		// Не удаляем импорты с . и _
+		if imp.Name != nil {
+			if imp.Name.Name == "." || imp.Name.Name == "_" {
+				filteredImports = append(filteredImports, imp)
+				continue
+			}
+		}
+
+		// Проверяем используется ли импорт
+		if isImportUsed(imp, usedNames, f) {
+			filteredImports = append(filteredImports, imp)
+		}
+	}
+
+	// Обновляем список импортов в AST
+	f.Imports = filteredImports
+
+	// Обновляем декларации импортов
+	var filteredDecls []ast.Decl
+	for _, decl := range f.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok || genDecl.Tok != token.IMPORT {
+			filteredDecls = append(filteredDecls, decl)
+			continue
+		}
+
+		// Фильтруем спецификации в блоке импортов
+		var filteredSpecs []ast.Spec
+		for _, spec := range genDecl.Specs {
+			impSpec := spec.(*ast.ImportSpec)
+			// Проверяем есть ли этот импорт в отфильтрованном списке
+			for _, filteredImp := range filteredImports {
+				if impSpec == filteredImp {
+					filteredSpecs = append(filteredSpecs, spec)
+					break
+				}
+			}
+		}
+
+		// Если остались импорты - добавляем декларацию
+		if len(filteredSpecs) > 0 {
+			genDecl.Specs = filteredSpecs
+			filteredDecls = append(filteredDecls, genDecl)
+		}
+	}
+
+	f.Decls = filteredDecls
+}
+
+func isImportUsed(imp *ast.ImportSpec, usedNames map[string]bool, f *ast.File) bool {
+	// Получаем имя, под которым импорт доступен в коде
+	var importName string
+	if imp.Name != nil {
+		importName = imp.Name.Name
+	} else {
+		// Извлекаем имя пакета из пути
+		path := strings.Trim(imp.Path.Value, `"`)
+		parts := strings.Split(path, "/")
+		importName = parts[len(parts)-1]
+	}
+
+	// Проверяем используется ли это имя
+	return usedNames[importName]
+}
+
+func (b *Block) ClearImports(code string) string {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", code, parser.ParseComments)
+	if err != nil {
+		slog.Error("clear imports 378", "error", err.Error())
+		return ""
+	}
+
+	// Собираем используемые имена
+	usedNames := collectUsedNames(f)
+
+	// Фильтруем импорты
+	filterImports(f, usedNames)
+
+	// Форматируем и возвращаем результат
+	var buf bytes.Buffer
+	if err := format.Node(&buf, fset, f); err != nil {
+		slog.Error("clear imports 391", "error", err.Error())
+		return ""
+	}
+
+	str := buf.String()
+
+	slog.Info(str)
+	return str
+}
+
 func (b *Block) FormExportFunc(attempt string) string {
 	funcDefs := baseCopypaste
 	fMapName := "_"
@@ -277,13 +420,29 @@ func (b *Block) FormExportFunc(attempt string) string {
 
 	if len(b.reusedFuncs) != 0 {
 		for _, funcName := range b.reusedFuncs {
-			mains += fmt.Sprintf("\t%s := funcsMap[\"%s\"].(%s)\n", funcName, funcName, b.types.funcs[funcName])
+			ok := true
+			for _, fname := range b.fnames {
+				if fname == funcName {
+					ok = false
+				}
+			}
+			if ok {
+				mains += fmt.Sprintf("\t%s := funcsMap[\"%s\"].(%s)\n", funcName, funcName, b.types.funcs[funcName])
+			}
 		}
 	}
 
 	if len(b.reusedVars) != 0 {
 		for _, varName := range b.reusedVars {
-			mains += fmt.Sprintf("\t%s := varsMap[\"%s\"].(%s)\n", varName, varName, b.types.vars[varName])
+			ok := true
+			for _, vname := range b.vnames {
+				if vname == varName {
+					ok = false
+				}
+			}
+			if ok {
+				mains += fmt.Sprintf("\t%s := varsMap[\"%s\"].(%s)\n", varName, varName, b.types.vars[varName])
+			}
 		}
 	}
 
@@ -309,5 +468,6 @@ func (b *Block) FormExportFunc(attempt string) string {
 		}
 	}
 
-	return funcDefs + mains + "}\n"
+	slog.Info(funcDefs + mains + "}\n")
+	return b.ClearImports(funcDefs + mains + "}\n")
 }

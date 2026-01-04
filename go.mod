@@ -1,6 +1,6 @@
 module github.com/dnonakolesax/noted-runner
 
-go 1.25.0
+go 1.25.5
 
 require github.com/docker/docker v28.5.2+incompatible
 
@@ -71,6 +71,7 @@ require (
 
 require (
 	github.com/andybalholm/brotli v1.2.0 // indirect
+	github.com/automerge/automerge-go v0.0.0-20241030180337-6fb4f2d08244
 	github.com/carousell/fasthttp-prometheus-middleware v1.0.13
 	github.com/dnonakolesax/viper v1.21.6
 	github.com/fasthttp/websocket v1.5.12

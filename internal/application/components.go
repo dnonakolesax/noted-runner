@@ -75,7 +75,7 @@ func (a *App) SetupComponents() error {
 		a.initLogger.ErrorContext(context.Background(), "Error connecting grpc auth",
 			slog.String(consts.ErrorLoggerKey, err.Error()))
 	}
-	defer conn.Close()
+	//defer conn.Close()
 
 	c := authPb.NewAuthServiceClient(conn)
 	
@@ -87,7 +87,7 @@ func (a *App) SetupComponents() error {
 		a.initLogger.ErrorContext(context.Background(), "Error connecting grpc access",
 			slog.String(consts.ErrorLoggerKey, err.Error()))
 	}
-	defer conn.Close()
+	//defer conn.Close()
 
 	acc := accessPb.NewAcessServiceClient(accessConn)
 	a.components.GRPCAC = &c
