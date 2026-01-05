@@ -16,7 +16,7 @@ func hello1(a string) {
 
 hello1("zxc")
 hello1("vbn")
-a := 2
+a, b := 2, 4
 
 func hello2() bool {
 	return True
@@ -80,7 +80,81 @@ func TestMultiple(t *testing.T) {
 		// 	expected: nil,
 		// },
 		{
-			sources:  []string{"a:=10", "fmt.Println(a)"},
+			sources:  []string{"a, b := 10, 20", "fmt.Println(a)\nfmt.Println(b)", "z := math.Abs(-1.0)", "fmt.Println(z)"},
+			expected: nil,
+		},
+	}
+
+	for _, testCase := range cases {
+		types := NewKernelTypes()
+
+		for idx, source := range testCase.sources {
+			sidx := strconv.Itoa(idx)
+			block := NewBlock(sidx, source, types)
+
+			err := block.Parse()
+
+			if !errors.Is(err, testCase.expected) {
+				t.Fatalf("testparse got error %v, expected %v \n", err, testCase.expected)
+			}
+
+			code := block.FormExportFunc("1")
+
+			fmt.Printf("code for %s: %s", sidx, code)
+		}
+	}
+
+}
+
+func TestImport (t *testing.T) {
+	type ImportCase struct {
+		sources  []string
+		expected error
+	}
+	cases := []ImportCase{
+		// {
+		// 	source: globalSource,
+		// 	expected: nil,
+		// },
+		{
+			sources:  []string{"mx := &sync.Mutex{}", "cnd := sync.NewCond(mx)", "cnd.L.Lock()\ncnd.Wait()\ncnd.L.Unlock()"},
+			expected: nil,
+		},
+	}
+
+	for _, testCase := range cases {
+		types := NewKernelTypes()
+
+		for idx, source := range testCase.sources {
+			sidx := strconv.Itoa(idx)
+			block := NewBlock(sidx, source, types)
+
+			err := block.Parse()
+
+			if !errors.Is(err, testCase.expected) {
+				t.Fatalf("testparse got error %v, expected %v \n", err, testCase.expected)
+			}
+
+			code := block.FormExportFunc("1")
+
+			fmt.Printf("code for %s: %s", sidx, code)
+		}
+	}
+
+}
+
+func TestFunc (t *testing.T) {
+	type FuncCase struct {
+		sources  []string
+		expected error
+	}
+	cases := []FuncCase{
+		// {
+		// 	source: globalSource,
+		// 	expected: nil,
+		// },
+		{
+			sources:  []string{"func abc() (int, string){\nreturn 2,\"3\"\n}\na,b:=abc()", "fmt.Println(a)\nfmt.Println(b)"},
 			expected: nil,
 		},
 	}

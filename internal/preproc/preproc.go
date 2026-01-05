@@ -8,8 +8,12 @@ import (
 	"go/parser"
 	"go/scanner"
 	"go/token"
+	"go/types"
 	"log/slog"
+	"slices"
 	"strings"
+
+	"golang.org/x/tools/go/packages"
 )
 
 type KernelTypes struct {
@@ -88,14 +92,16 @@ func (b *Block) Parse() error {
 	var s scanner.Scanner
 	s.Init(file, []byte(b.content), nil, scanner.ScanComments)
 
-	mark := func(line int, k Kind) {
+	mark := func(line int, k Kind) bool {
 		if line == 0 {
-			return
+			return false
 		}
 		if b.lineKinds[line] == nil {
 			b.lineKinds[line] = make(map[Kind]bool)
 		}
+		_, ok := b.lineKinds[line][k]
 		b.lineKinds[line][k] = true
+		return !ok
 	}
 
 	var (
@@ -165,8 +171,10 @@ func (b *Block) Parse() error {
 			}
 
 			if inVarDecl {
-				mark(line, KindVarDecl)
-				b.vnames = append(b.vnames, lit)
+				ok := mark(line, KindVarDecl)
+				if ok {
+					b.vnames = append(b.vnames, lit)
+				}
 			} else {
 				pendingCandidates = append(pendingCandidates, identCandidate{
 					name: lit,
@@ -189,18 +197,26 @@ func (b *Block) Parse() error {
 		case token.DEFINE:
 			totalLine := ""
 			for _, c := range pendingCandidates {
-				mark(c.line, KindVarDecl)
+				ok := mark(line, KindVarDecl)
 				b.vnames = append(b.vnames, c.name)
-				totalLine += lines[c.line-1]
+				if ok {
+					totalLine += lines[c.line-1]
+				}
 			}
-			tp, err := parseLineType(totalLine)
+			tp, err := b.parseLineType(totalLine)
 
 			if err != nil {
 				return err
 			}
 
-			// TODO: implement multi-var support
-			b.types.vars[pendingCandidates[0].name] = tp
+			if len(tp) != len(pendingCandidates) {
+				return fmt.Errorf("%s", "variables decl and val don't match at line "+totalLine)
+			}
+
+			for idx, val := range pendingCandidates {
+				name := val.name
+				b.types.vars[name] = tp[idx]
+			}
 
 			pendingCandidates = nil
 
@@ -272,24 +288,136 @@ func (b *Block) Parse() error {
 	return nil
 }
 
-func parseLineType(totalLine string) (string, error) {
+func (b *Block) parseLineType(totalLine string) ([]string, error) {
 	splitted := strings.Split(totalLine, ":=")
 	if len(splitted) != 2 {
-		return "", fmt.Errorf("not valid statement")
+		return []string{}, fmt.Errorf("not valid statement")
 	}
-	value := splitted[1]
+	val := strings.Split(splitted[1], ",")
+	res := make([]string, 0)
 
-	expr, err := parser.ParseExpr(value)
+	for _, value := range val {
+		expr, err := parser.ParseExpr(value)
 
+		if err != nil {
+			return []string{}, err
+		}
+
+		switch v := expr.(type) {
+		case *ast.BasicLit:
+			res = append(res, strings.ToLower(v.Kind.String()))
+		default:
+			typ := ""
+			typLen := 0
+			for i := 0; i < len(value); i++ {
+				if value[i] == ' ' {
+					typLen++
+					continue
+				}
+				if value[i] != '&' {
+					break
+				}
+				typ += "*"
+			}
+			if value[len(value)-1] == '}' {
+				for i := len(typ) + typLen; i < len(value); i++ {
+					if value[i] == '{' {
+						break
+					}
+					typ += string(value[i])
+				}
+			} else if value[len(value)-1] == ')' {
+				fname := ""
+				for i := len(typ) + typLen; i < len(value); i++ {
+					if value[i] == '(' {
+						break
+					}
+					fname += string(value[i])
+				}
+				fnameSplitted := strings.SplitN(fname, ".", 2)
+				if len(fnameSplitted) == 2 {
+					importPath := fnameSplitted[0]
+					funcName := fnameSplitted[1]
+					loadedType, err := loadFuncResultType(importPath, funcName)
+					if err != nil {
+						return []string{}, err
+					}
+					typ += loadedType
+				} else {
+					if b.types.funcs[fname] != "" {
+						fmt.Println(b.types.funcs[fname])
+						types := strings.SplitAfterN(b.types.funcs[fname], ")", 2)
+						if len(types) != 2 {
+							return []string{}, fmt.Errorf("can't resolve func result type for %s", fname)
+						}
+						fmt.Println(types)
+						if strings.HasPrefix(types[1], "(") && strings.HasSuffix(types[1], ")") {
+							types[1] = strings.TrimSuffix(strings.TrimPrefix(types[1], "("), ")")
+						}
+
+						typesArr := strings.Split(types[1], ",")
+
+						if len(typesArr) == 0 {
+							return []string{}, fmt.Errorf("can't resolve func result type for %s", fname)
+						} else if len(typesArr) == 1 {
+							typ += strings.TrimSpace(typesArr[0])
+						} else {
+							typ = ""
+							for _, t := range typesArr {
+								res = append(res, strings.TrimSpace(t))
+							}
+						}
+					}
+					//return []string{}, fmt.Errorf("can't resolve func result type for %s", fname)
+				}
+			}
+			if typ != "" {
+				res = append(res, typ)
+			}
+		}
+	}
+	return res, nil
+}
+
+func loadFuncResultType(importPath, funcName string) (string, error) {
+	cfg := &packages.Config{
+		Mode: packages.NeedTypes | packages.NeedTypesInfo | packages.NeedSyntax,
+	}
+
+	pkgs, err := packages.Load(cfg, importPath)
 	if err != nil {
 		return "", err
 	}
-
-	switch v := expr.(type) {
-	case *ast.BasicLit:
-		return strings.ToLower(v.Kind.String()), nil
+	if packages.PrintErrors(pkgs) > 0 {
+		return "", fmt.Errorf("packages contain errors")
 	}
-	return "", fmt.Errorf("unknown type")
+	if len(pkgs) == 0 {
+		return "", fmt.Errorf("package not found")
+	}
+
+	scope := pkgs[0].Types.Scope()
+	obj := scope.Lookup(funcName)
+	if obj == nil {
+		return "", fmt.Errorf("func %s not found in %s", funcName, importPath)
+	}
+
+	fn, ok := obj.(*types.Func)
+	if !ok {
+		return "", fmt.Errorf("%s is not a function", funcName)
+	}
+
+	sig, ok := fn.Type().(*types.Signature)
+	if !ok {
+		return "", fmt.Errorf("not a function signature")
+	}
+
+	res := sig.Results()
+	if res.Len() == 0 {
+		return "", fmt.Errorf("function %s has no results", funcName)
+	}
+
+	// Берём тип первого результата
+	return res.At(0).Type().String(), nil
 }
 
 func collectUsedNames(f *ast.File) map[string]bool {
@@ -371,11 +499,8 @@ func filterImports(f *ast.File, usedNames map[string]bool) {
 		for _, spec := range genDecl.Specs {
 			impSpec := spec.(*ast.ImportSpec)
 			// Проверяем есть ли этот импорт в отфильтрованном списке
-			for _, filteredImp := range filteredImports {
-				if impSpec == filteredImp {
-					filteredSpecs = append(filteredSpecs, spec)
-					break
-				}
+			if slices.Contains(filteredImports, impSpec) {
+				filteredSpecs = append(filteredSpecs, spec)
 			}
 		}
 
@@ -406,10 +531,11 @@ func isImportUsed(imp *ast.ImportSpec, usedNames map[string]bool, f *ast.File) b
 }
 
 func (b *Block) ClearImports(code string) string {
+	//fmt.Println(code)
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", code, parser.ParseComments)
 	if err != nil {
-		slog.Error("clear imports 378", "error", err.Error())
+		slog.Error("clear imports", "error", err.Error())
 		return ""
 	}
 
@@ -428,7 +554,7 @@ func (b *Block) ClearImports(code string) string {
 
 	str := buf.String()
 
-	slog.Info(str)
+	//slog.Info(str)
 	return str
 }
 
@@ -453,6 +579,7 @@ func (b *Block) FormExportFunc(attempt string) string {
 	lines := strings.Split(b.content, "\n")
 
 	if len(b.reusedFuncs) != 0 {
+		fPlaced := make(map[string]struct{})
 		for _, funcName := range b.reusedFuncs {
 			ok := true
 			for _, fname := range b.fnames {
@@ -460,13 +587,16 @@ func (b *Block) FormExportFunc(attempt string) string {
 					ok = false
 				}
 			}
-			if ok {
+			_, placed := fPlaced[funcName]
+			if ok && !placed {
 				mains += fmt.Sprintf("\t%s := funcsMap[\"%s\"].(%s)\n", funcName, funcName, b.types.funcs[funcName])
+				fPlaced[funcName] = struct{}{}
 			}
 		}
 	}
 
 	if len(b.reusedVars) != 0 {
+		vPlaced := make(map[string]struct{})
 		for _, varName := range b.reusedVars {
 			ok := true
 			for _, vname := range b.vnames {
@@ -474,8 +604,10 @@ func (b *Block) FormExportFunc(attempt string) string {
 					ok = false
 				}
 			}
-			if ok {
+			_, placed := vPlaced[varName]
+			if ok && !placed {
 				mains += fmt.Sprintf("\t%s := varsMap[\"%s\"].(%s)\n", varName, varName, b.types.vars[varName])
+				vPlaced[varName] = struct{}{}
 			}
 		}
 	}
@@ -492,16 +624,26 @@ func (b *Block) FormExportFunc(attempt string) string {
 		}
 	}
 	if len(b.fnames) != 0 {
+		fused := make(map[string]struct{})
 		for _, fname := range b.fnames {
+			if _, ok := fused[fname]; ok {
+				continue
+			}
 			mains += fmt.Sprintf("\tfuncsMap[\"%s\"] = %s \n", fname, fname)
+			fused[fname] = struct{}{}
 		}
 	}
 	if len(b.vnames) != 0 {
+		vused := make(map[string]struct{})
 		for _, vname := range b.vnames {
+			if _, ok := vused[vname]; ok {
+				continue
+			}
 			mains += fmt.Sprintf("\tvarsMap[\"%s\"] = %s \n", vname, vname)
+			vused[vname] = struct{}{}
 		}
 	}
 
-	slog.Info(funcDefs + mains + "}\n")
+	//slog.Info(funcDefs + mains + "}\n")
 	return b.ClearImports(funcDefs + mains + "}\n")
 }

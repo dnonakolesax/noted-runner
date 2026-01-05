@@ -19,6 +19,7 @@ type DockerClient struct {
 	client *client.Client
 	config *configs.DockerConfig
 	logger *slog.Logger
+	active []string
 }
 
 func NewDockerClient(config *configs.DockerConfig, dckLogger *slog.Logger) (*DockerClient, error) {
@@ -42,10 +43,13 @@ func NewDockerClient(config *configs.DockerConfig, dckLogger *slog.Logger) (*Doc
 		return nil, err
 	}
 
-	return &DockerClient{client: cli, config: config, logger: dckLogger}, err
+	return &DockerClient{client: cli, config: config, logger: dckLogger, active: make([]string, 0)}, err
 }
 
 func (dc *DockerClient) Close() {
+	for _, act := range(dc.active) {
+		_ = dc.Remove(act)
+	}
 	_ = dc.client.Close()
 }
 
@@ -95,6 +99,7 @@ func (dc *DockerClient) Create(name string, kernelID string) (string, error) {
 		dc.logger.Error("error creating container", logger.LogError(err))
 		return "", err
 	}
+	dc.active = append(dc.active, resp.ID)
 	return resp.ID, nil
 }
 
