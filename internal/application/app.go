@@ -94,7 +94,7 @@ func (a *App) Run() {
 		IdleTimeout:  a.configs.HTTPServer.IdleTimeout,
 
 		MaxRequestBodySize: a.configs.HTTPServer.MaxReqBodySize,
-		ReadBufferSize:     a.configs.HTTPServer.ReadBufferSize,
+		ReadBufferSize:     1024*1024,
 		WriteBufferSize:    a.configs.HTTPServer.WriteBufferSize,
 
 		Concurrency:        a.configs.HTTPServer.Concurrency,

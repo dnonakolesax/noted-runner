@@ -103,5 +103,40 @@ func TestMultiple(t *testing.T) {
 			fmt.Printf("code for %s: %s", sidx, code)
 		}
 	}
+}
 
+func TestStruct(t *testing.T) {
+	type StructCase struct {
+		sources  []string
+		expected error
+	}
+	cases := []StructCase{
+		// {
+		// 	source: globalSource,
+		// 	expected: nil,
+		// },
+		{
+			sources:  []string{"type AAA struct {\na int\nb string\n}\na:=AAA{1,\"dheit\"}", "fmt.Println(a)"},
+			expected: nil,
+		},
+	}
+
+	for _, testCase := range cases {
+		types := NewKernelTypes()
+
+		for idx, source := range testCase.sources {
+			sidx := strconv.Itoa(idx)
+			block := NewBlock(sidx, source, types)
+
+			err := block.Parse()
+
+			if !errors.Is(err, testCase.expected) {
+				t.Fatalf("testparse got error %v, expected %v \n", err, testCase.expected)
+			}
+
+			code := block.FormExportFunc("1")
+
+			fmt.Printf("code for %s: %s", sidx, code)
+		}
+	}
 }

@@ -15,15 +15,17 @@ import (
 type KernelTypes struct {
 	vars  map[string]string
 	funcs map[string]string
-	//types map[string]string
+	types map[string]string
 }
 
 func NewKernelTypes() *KernelTypes {
 	mv := make(map[string]string)
 	mf := make(map[string]string)
+	mt := make(map[string]string)
 	return &KernelTypes{
 		vars:  mv,
 		funcs: mf,
+		types: mt,
 	}
 }
 
@@ -42,22 +44,27 @@ var knownTypes map[string]any = map[string]any{
 }
 
 type Block struct {
-	content     string
-	lineKinds   map[int]map[Kind]bool
-	fnames      []string
-	vnames      []string
-	id          string
-	types       *KernelTypes
-	reusedFuncs []string
-	reusedVars  []string
+	content       string
+	lineKinds     map[int]map[Kind]bool
+	fnames        []string
+	vnames        []string
+	snames        []string
+	id            string
+	efaceRequired bool
+	types         *KernelTypes
+	reusedFuncs   []string
+	reusedVars    []string
+	reusedStructs []string
+	structDefines map[string]string
 }
 
 func NewBlock(id string, content string, types *KernelTypes) *Block {
 	fnames := make([]string, 0)
 	vnames := make([]string, 0)
+	snames := make([]string, 0)
 	lineKinds := make(map[int]map[Kind]bool)
 
-	return &Block{content: content, lineKinds: lineKinds, fnames: fnames, vnames: vnames, id: id, types: types}
+	return &Block{content: content, lineKinds: lineKinds, fnames: fnames, vnames: vnames, snames: snames, id: id, types: types}
 }
 
 type Kind string
@@ -95,8 +102,12 @@ func (b *Block) Parse() error {
 		braceDepth         int  // общая глубина фигурных скобок
 		funcSignatureOpen  bool // после func ... до {
 		insideFunc         bool // сейчас внутри тела функции
+		insideType         bool
 		funcLevel          int  = -1
+		typeLevel          int  = -1
 		lastWasFuncKeyword bool // предыдущий токен был "func"
+		lastWasTypeKeyword bool
+		cTypeName          string
 
 		inVarDecl         bool             // внутри var-объявления
 		pendingCandidates []identCandidate // кандидаты для :=
@@ -122,6 +133,9 @@ func (b *Block) Parse() error {
 			lastWasFuncKeyword = true
 			funcSignatureOpen = true
 
+		case token.TYPE:
+			lastWasTypeKeyword = true
+
 		case token.IDENT:
 			if lastWasFuncKeyword {
 				mark(line, KindFuncName)
@@ -131,10 +145,23 @@ func (b *Block) Parse() error {
 				break
 			}
 
+			if lastWasTypeKeyword {
+				b.snames = append(b.snames, lit)
+				cTypeName = lit
+				lastWasTypeKeyword = false
+				insideType = true
+				b.types.types[cTypeName] = "type"
+				break
+			}
+
 			if funcSignatureOpen {
 				if _, ok := knownTypes[lit]; ok {
 					b.types.funcs[b.fnames[len(b.fnames)-1]] = b.types.funcs[b.fnames[len(b.fnames)-1]] + lit
 				}
+			}
+
+			if insideType {
+				b.types.types[cTypeName] = b.types.types[cTypeName] + lit
 			}
 
 			if inVarDecl {
@@ -189,6 +216,9 @@ func (b *Block) Parse() error {
 				funcSignatureOpen = false
 				funcLevel = braceDepth
 			}
+			if insideType {
+				typeLevel = braceDepth
+			}
 
 		case token.RBRACE:
 			if braceDepth > 0 {
@@ -197,6 +227,10 @@ func (b *Block) Parse() error {
 			if insideFunc && braceDepth < funcLevel {
 				insideFunc = false
 				funcLevel = -1
+			}
+			if insideType && braceDepth < typeLevel {
+				insideType = false
+				typeLevel = -1
 			}
 		case token.LPAREN:
 			if funcSignatureOpen {
